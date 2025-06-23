@@ -12,7 +12,9 @@ import glob
 import os
 import sys
 import time
-import carla
+# import sys
+# sys.path.append("/home/apg/carla/PythonAPI/carla/dist/carla-0.9.14-py3.7-linux-x86_64.egg")
+# import carla
 import math
 import random
 import time
@@ -274,10 +276,24 @@ def main():
         SpawnActor = carla.command.SpawnActor
         SetAutopilot = carla.command.SetAutopilot
         FutureActor = carla.command.FutureActor
-
+        # print(carla.__version__)
         # --------------
         # Spawn vehicles
         # --------------
+        # Generate EGO vehicle
+        ego_bp =bp_lib.find('vehicle.tesla.model3')
+        tf = random.choice(world.get_map().get_spawn_points())
+        ego = world.try_spawn_actor(ego_bp, tf)
+        waypoint = world.get_map().get_waypoint(tf.location)
+        ego_transform = carla.Transform(carla.Location(x=waypoint.transform.location.x, y=waypoint.transform.location.y, z=-1.5), 
+                                                    carla.Rotation(pitch = 0, yaw=waypoint.transform.rotation.yaw, roll=0))
+        ego.set_transform(ego_transform)
+        traffic_manager.vehicle_percentage_speed_difference(ego, -1000.0)
+        traffic_manager.ignore_lights_percentage(ego, 100)
+
+        ego.set_autopilot(True)
+        print("Ego vehicle is now on autopilot!")
+
         batch = []
         hero = args.hero
         for n, transform in enumerate(spawn_points):
@@ -403,21 +419,8 @@ def main():
         transform = spectator.get_transform()
         location = transform.location
         rotation = transform.rotation
-    
-        print("Intersection: ", args.intersection)
-        # Intersection 1
-        if args.intersection == 1:
-            spectator.set_transform(carla.Transform(carla.Location(x=-62.010975, y=1.288139, z=17.589510),carla.Rotation(pitch=-48.045647, yaw=53.329460, roll=0.000444)))
-        # Intersection 2
-        elif (args.intersection == 2):
-            spectator.set_transform(carla.Transform(carla.Location(x=123.813690, y=3.087291, z=18.886221),carla.Rotation(pitch=-27.611475, yaw=149.086655, roll=0.000053)))
-        # Intersection 3
-        elif (args.intersection == 3):
-            spectator.set_transform(carla.Transform(carla.Location(x=-62.647594, y=146.626755, z=9.927452),carla.Rotation(pitch=-20.047110, yaw=-45.562790, roll=0.000417)))
-        # Intersection 4
-        elif (args.intersection == 4):
-            spectator.set_transform(carla.Transform(carla.Location(x=-125.967690, y=-0.002219, z=12.125855),carla.Rotation(pitch=-22.860840, yaw=33.173634, roll=0.000728)))
-        else: print("Intersection not found")
+
+
         # spawn camera
         camera_bp = bp_lib.find('sensor.camera.rgb')
         # dvs_camera_bp = bp_lib.find('sensor.camera.dvs')
@@ -435,8 +438,6 @@ def main():
 
         # Night Mode
         print("Night Mode:", args.night)
-        # Intersection 1: 2.3
-        # Intersection 4: 1.5
         if args.night:
             weather = carla.WeatherParameters(
                 sun_altitude_angle=-90.0
@@ -453,11 +454,11 @@ def main():
             # raw_camera_bp.set_attribute('blur_radius', '5')
 
 
-        camera_init_trans = carla.Transform(carla.Location(z=0))
+        camera_init_trans = carla.Transform(carla.Location(z=20), carla.Rotation(pitch=-90))
 
-        camera = world.spawn_actor(camera_bp, camera_init_trans, attach_to=spectator)
+        camera = world.spawn_actor(camera_bp, camera_init_trans, attach_to=ego)
         # dvs_camera = world.spawn_actor(dvs_camera_bp, camera_init_trans, attach_to=spectator)
-        raw_camera = world.spawn_actor(raw_camera_bp, camera_init_trans, attach_to=spectator)
+        raw_camera = world.spawn_actor(raw_camera_bp, camera_init_trans, attach_to=ego)
 
 
         # Get the world to camera matrix
@@ -512,7 +513,8 @@ def main():
             writer.writerow(['t', 'x', 'y', 'w', 'h', 'class_id','class_confidence'])
             file.close()
         # world.tick()
-        raw_camera.listen(lambda data: time_queue.put(dvs_api.dvs_callback_csv(data, dvs_output_path)))
+        # raw_camera.listen(lambda data: time_queue.put(dvs_api.dvs_callback_csv(data, dvs_output_path)))
+        raw_camera.listen(time_queue.put)
         camera.listen(image_queue.put)
 
         world.tick()
@@ -527,6 +529,7 @@ def main():
             # image = rgb_stack.pop()
             # world.wait_for_tick()
             # Get the camera matrix 
+            spectator.set_transform(camera.get_transform())
             world_2_camera = np.array(camera.get_transform().get_inverse_matrix())
 
             # Save the image
@@ -539,14 +542,14 @@ def main():
             for npc in world.get_actors().filter('*vehicle*'):
                 # if npc.id != vehicle.id:
                     bb = npc.bounding_box
-                    dist = npc.get_transform().location.distance(spectator.get_transform().location)
+                    dist = npc.get_transform().location.distance(camera.get_transform().location)
                     x = npc.get_velocity().x
                     y = npc.get_velocity().y
                     z = npc.get_velocity().z
                     velocity = (x**2+y**2+z**2)**0.5
                     if dist < 70:
-                        forward_vec = spectator.get_transform().get_forward_vector()
-                        ray = npc.get_transform().location - spectator.get_transform().location
+                        forward_vec = camera.get_transform().get_forward_vector()
+                        ray = npc.get_transform().location - camera.get_transform().location
                         if forward_vec.dot(ray) > 0:
                             p1 = get_image_point(bb.location, K, world_2_camera)
                             verts = [v for v in bb.get_world_vertices(npc.get_transform())]
@@ -585,14 +588,14 @@ def main():
             for npc in world.get_actors().filter('*pedestrian*'):
                 # if npc.id != vehicle.id:
                     bb = npc.bounding_box
-                    dist = npc.get_transform().location.distance(spectator.get_transform().location)
+                    dist = npc.get_transform().location.distance(camera.get_transform().location)
                     # x = npc.get_velocity().x
                     # y = npc.get_velocity().y
                     # z = npc.get_velocity().z
                     # velocity = (x**2+y**2+z**2)**0.5
                     if dist < 60:
-                        forward_vec = spectator.get_transform().get_forward_vector()
-                        ray = npc.get_transform().location - spectator.get_transform().location
+                        forward_vec = camera.get_transform().get_forward_vector()
+                        ray = npc.get_transform().location - camera.get_transform().location
                         if forward_vec.dot(ray) > 0:
                             p1 = get_image_point(bb.location, K, world_2_camera)
                             verts = [v for v in bb.get_world_vertices(npc.get_transform())]
@@ -639,17 +642,30 @@ def main():
                     file.write(bbox[0]+f" {bbox[1]} {bbox[2]} {bbox[3]} {bbox[4]}\n")
                 file.close()
             if time_queue.empty() != True:
-                timestamp = time_queue.get()
+                events_list = time_queue.get()
+                dvs_events = np.frombuffer(events_list.raw_data, dtype=np.dtype([('x', np.uint16), ('y',np.uint16), ('t',np.int64), ('pol', np.bool)]))
+                dvs_event_copy = dvs_events.copy()
+                dvs_event_copy['t'] //= 1000
+                with open(dvs_output_path, mode="a",  newline='') as file:
+                    writer = csv.writer(file)
+                    for event in dvs_event_copy:
+                        writer.writerow(event)
+                    file.close()
+                timestamp = dvs_event_copy[0]['t']
                 with open("output/bbox.csv", "a", encoding = "utf-8") as file:
                     writer = csv.writer(file)
                     for bbox in bboxes_dvs:
                         event = [timestamp] + bbox
                         writer.writerow(event)
                     file.close()
+            else:
+                print("time queue is empty, current frame:", image.frame)
 
-            if times % 500 == 0:
+            if times % 100 == 0:
                 print("times = ", times)
-            if times > 5:
+            if times > 600:
+                camera.stop()
+                raw_camera.stop()
                 print("Finish")
                 break
     finally:
