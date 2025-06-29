@@ -11,7 +11,7 @@ label_file = 'output/bbox.csv'
 video_filename = 'output_video_dvs.avi'
 
 # Desired frame rate of the video and frame dimensions
-frame_rate = 10
+frame_rate = 30
 H = 720  # Height of the frame
 W = 1280  # Width of the frame
 
@@ -69,9 +69,9 @@ for df in chunks:
             dvs_img[y_coords, x_coords, 2] = (1 - polarity) * 255  # Red channel for +1 polarity
             for name, (xmin,ymin,xmax,ymax), ts in bboxes:
                 if(name == "0"):
-                    cv2.rectangle(dvs_img, (xmin,ymin),(xmax,ymax),(0,255,0),5)
+                    cv2.rectangle(dvs_img, (xmin,ymin),(xmax,ymax),(0,255,0),3)
                 elif(name== "2"):
-                    cv2.rectangle(dvs_img, (xmin,ymin),(xmax,ymax),(0,0,255),5)
+                    cv2.rectangle(dvs_img, (xmin,ymin),(xmax,ymax),(0,0,255),3)
             # Write the frame to the video
             video.write(dvs_img)
             
